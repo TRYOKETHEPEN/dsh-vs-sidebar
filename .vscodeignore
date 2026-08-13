@@ -1,0 +1,26 @@
+# --- Git metadata / 仓库元数据 ---
+.git/**
+.gitignore
+
+# --- Repo helper files not needed in the published package ---
+# 发布用不到、也不该带出去的仓库辅助内容
+.github/**
+docs/**
+
+# --- VS Code dev config（含 launch.json，可能含机器相关路径）/ dev config ---
+.vscode/**
+
+# --- Tests & scratch data / 测试与临时数据 ---
+.vscode-test/**
+smoke*.js
+dsh-instances.json
+.smoke-storage/**
+
+# --- Build artifacts / 构建产物 ---
+**/*.map
+**/*.log
+**/node_modules/**
+
+# 以下文件默认保留在包里：README.md、CHANGELOG.md、LICENSE、media/、src/（勿在
+# 这里忽略它们）。The following stay in the package: README.md, CHANGELOG.md,
+# LICENSE, media/, src/ (do not ignore them here).

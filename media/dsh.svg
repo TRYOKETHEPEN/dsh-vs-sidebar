@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
+  <!-- Rounded-square chip frame + hollow "D" letterform, monochrome currentColor (adapts to VS Code theme) -->
+  <rect x="2" y="2" width="20" height="20" rx="5.5" stroke="currentColor" stroke-width="1.7"/>
+  <path fill-rule="evenodd" clip-rule="evenodd" d="M8 6.5h4a5.5 5.5 0 0 1 0 11H8v-11Zm2 2v7h2a3.5 3.5 0 0 0 0-7h-2Z" fill="currentColor"/>
+</svg>

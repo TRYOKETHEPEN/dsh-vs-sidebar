@@ -1,0 +1,20 @@
+# ---- Node.js ----
+node_modules/
+
+# ---- Build / packaging artifacts / 构建与打包产物 ----
+out/
+dist/
+*.vsix
+
+# ---- Tests / 测试 ----
+.vscode-test/
+*.log
+
+# ---- DeepSeek Harness Sidebar runtime state / 扩展运行时状态 ----
+# 实例注册表：通常写入 VS Code 全局存储，这里兜底忽略（含 smoke 测试运行目录）。
+# Instance registry: usually written to VS Code global storage; ignored here as a
+# safety net (also covers smoke-test run directories).
+dsh-instances.json
+
+# smoke 测试的临时数据 / smoke-test scratch data
+.smoke-storage/

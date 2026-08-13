@@ -1,0 +1,98 @@
+{
+  "name": "dsh-vs-sidebar",
+  "displayName": "DeepSeek Harness Sidebar",
+  "description": "Embeds the local DeepSeek Harness (DSH) web UI into the VS Code auxiliary sidebar (the right-hand bar alongside Copilot Chat).",
+  "version": "0.1.0",
+  "publisher": "Xizhi1024",
+  "license": "MIT",
+  "pricing": "Free",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Xizhi1024/dsh-vs-sidebar.git"
+  },
+  "homepage": "https://github.com/Xizhi1024/dsh-vs-sidebar#readme",
+  "bugs": {
+    "url": "https://github.com/Xizhi1024/dsh-vs-sidebar/issues"
+  },
+  "keywords": [
+    "deepseek",
+    "deepseek harness",
+    "dsh",
+    "ai agent",
+    "coding agent",
+    "sidebar",
+    "webview"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "galleryBanner": {
+    "color": "#0e639c",
+    "theme": "dark"
+  },
+  "icon": "media/dsh.svg",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "main": "src/extension.js",
+  "devDependencies": {
+    "@types/vscode": "^1.90.0"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "dsh-sidebar",
+          "title": "DeepSeek Harness",
+          "icon": "media/dsh.svg"
+        }
+      ]
+    },
+    "views": {
+      "dsh-sidebar": [
+        {
+          "type": "webview",
+          "id": "dsh.webview",
+          "name": "DeepSeek Harness"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "dsh.openInBrowser",
+        "title": "Open DSH in Browser",
+        "category": "DeepSeek Harness"
+      },
+      {
+        "command": "dsh.restartServer",
+        "title": "Restart DSH Server",
+        "category": "DeepSeek Harness"
+      },
+      {
+        "command": "dsh.focusSidebar",
+        "title": "Focus DSH Sidebar",
+        "category": "DeepSeek Harness"
+      }
+    ],
+    "configuration": {
+      "title": "DeepSeek Harness",
+      "properties": {
+        "dsh.port": {
+          "type": "number",
+          "default": 3080,
+          "description": "DSH web 服务端口"
+        },
+        "dsh.host": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "DSH web 服务主机"
+        },
+        "dsh.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "无运行实例时自动启动 dsh web"
+        }
+      }
+    }
+  }
+}
