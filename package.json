@@ -36,6 +36,7 @@
   },
   "main": "src/extension.js",
   "activationEvents": [
+    "onStartupFinished",
     "onView:dsh.webview",
     "onCommand:dsh.openInBrowser",
     "onCommand:dsh.restartServer",
@@ -90,9 +91,19 @@
       {
         "command": "dsh.focusSidebar",
         "title": "Focus DSH Sidebar",
-        "category": "DeepSeek Harness"
+        "category": "DeepSeek Harness",
+        "icon": "media/dsh.svg"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "dsh.focusSidebar",
+          "group": "navigation@100",
+          "when": "resourceScheme == file || resourceScheme == untitled"
+        }
+      ]
+    },
     "configuration": {
       "title": "DeepSeek Harness Sidebar (DSH)",
       "properties": {
