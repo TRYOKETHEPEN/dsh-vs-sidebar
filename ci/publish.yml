@@ -48,9 +48,33 @@ on:
   workflow_dispatch:      # 也支持手动触发 / manual trigger is supported too
 
 jobs:
+  # 跨平台自测 / cross-platform self-tests: src/serverManager.js ships an
+  # in-file test suite (node src/serverManager.js) that never spawns a real
+  # dsh process — run it on all three OSes so platform branches (spawn,
+  # tasklist, samePath, process-group kill) stay covered.
+  test:
+    name: Self-test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run serverManager self-test
+        run: node src/serverManager.js
+
   publish:
     name: Publish to Marketplaces
     runs-on: ubuntu-latest
+    needs: test
     steps:
       - name: Checkout
         uses: actions/checkout@v4

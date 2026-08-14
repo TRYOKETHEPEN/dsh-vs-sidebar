@@ -21,6 +21,9 @@ let currentServer = null; // RunningServer | null
 let currentView = null; // vscode.WebviewView | null
 let statusBar = null; // vscode.StatusBarItem | null
 let connecting = false; // guards against concurrent connect() runs
+let connectPromise = null; // in-flight connect() so workspace rebinds can await it
+let boundCwd = null; // workspace root the current server is bound to (null = none)
+let rebindChain = Promise.resolve(); // serializes workspace-change rebinds
 
 /** Read the user's dsh.* settings. */
 function config() {
@@ -96,43 +99,57 @@ function render(page) {
   }
 }
 
-/** Main flow: make sure a DSH web server exists, then show it in the sidebar. */
-async function connect(context) {
-  if (connecting) return;
-  connecting = true;
-  try {
-    const cfg = config();
-    setStatusBar("$(radio-tower) DSH: connecting...");
-    render(statusPage({ title: "正在连接 DeepSeek Harness…", detail: "" }));
-    const server = await manager.ensureServer({
-      host: cfg.host,
-      port: cfg.port,
-      autoStart: cfg.autoStart,
-      cwd: workspaceCwd(),
-      registryFile: registryFilePath(context),
-    });
-    currentServer = server;
-    const url = await externalize(server.url);
-    const owned = server.owned ? "managed" : "reused";
-    setStatusBar("$(radio-tower) DSH:" + server.port + " (" + owned + ")", server.url);
-    render(framePage({ url }));
-  } catch (err) {
-    currentServer = null;
-    setStatusBar("$(error) DSH: unavailable");
-    const cfg = config();
-    const url = "http://" + cfg.host + ":" + cfg.port;
+/**
+ * Main flow: make sure a DSH web server exists, then show it in the sidebar.
+ * Returns the in-flight promise so callers (retry, openInBrowser, workspace
+ * rebinds) can await the same connect instead of racing it. The cwd the
+ * server ends up bound to is recorded in boundCwd.
+ */
+function connect(context) {
+  if (connectPromise) return connectPromise; // one connect at a time
+  connectPromise = (async () => {
+    connecting = true;
     try {
-      render(statusPage({
-        title: "DeepSeek Harness 不可用",
-        detail: String(err && err.message ? err.message : err),
-        url,
-        showOpenBrowser: true,
-        showRetry: true,
-      }));
-    } catch (_) { /* never throw out of connect() */ }
-  } finally {
-    connecting = false;
-  }
+      const cfg = config();
+      const cwd = workspaceCwd();
+      setStatusBar("$(radio-tower) DSH: connecting...");
+      render(statusPage({ title: "正在连接 DeepSeek Harness…", detail: "" }));
+      const server = await manager.ensureServer({
+        host: cfg.host,
+        port: cfg.port,
+        autoStart: cfg.autoStart,
+        cwd,
+        registryFile: registryFilePath(context),
+      });
+      currentServer = server;
+      boundCwd = cwd;
+      const url = await externalize(server.url);
+      const owned = server.owned ? "managed" : "reused";
+      setStatusBar(
+        "$(radio-tower) DSH:" + server.port + " (" + owned + ")",
+        server.url + (cwd ? " | cwd: " + cwd : "")
+      );
+      render(framePage({ url }));
+    } catch (err) {
+      currentServer = null;
+      setStatusBar("$(error) DSH: unavailable");
+      const cfg = config();
+      const url = "http://" + cfg.host + ":" + cfg.port;
+      try {
+        render(statusPage({
+          title: "DeepSeek Harness 不可用",
+          detail: String(err && err.message ? err.message : err),
+          url,
+          showOpenBrowser: true,
+          showRetry: true,
+        }));
+      } catch (_) { /* never throw out of connect() */ }
+    } finally {
+      connecting = false;
+      connectPromise = null;
+    }
+  })();
+  return connectPromise;
 }
 
 /** Re-connect: stops only servers this extension spawned, never a reused one. */
@@ -145,18 +162,99 @@ async function reconnect(context) {
 }
 
 /**
- * Windows: VS Code often starts with a truncated PATH (launched from the
- * Start menu/Explorer), so the npm global bin dir may be missing and the
- * spawned "dsh" command would fail with "not recognized". Append it if
- * absent so ServerManager can find dsh.cmd.
+ * True when two cwd values denote the same root. Null-safe: both null means
+ * "no workspace" on both sides; samePath handles Windows case/trailing-slash
+ * differences.
+ */
+function sameRoot(a, b) {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  return ServerManager.samePath(a, b);
+}
+
+/**
+ * Re-bind the sidebar to the current workspace root. Called whenever the
+ * workspace changed — folders added/removed, or the active editor moved to
+ * another folder in a multi-root workspace — so the embedded DSH instance
+ * always matches the workspace the user is looking at.
+ *
+ * Stops a server this extension spawned for the OLD root (reused instances
+ * are never touched), resets the view to a "connecting" state and re-runs
+ * the whole probe/reuse/spawn flow for the new cwd. No-ops when the root did
+ * not effectively change.
+ */
+async function rebindToWorkspace(context) {
+  const cwd = workspaceCwd();
+  if (sameRoot(cwd, boundCwd)) return; // no effective workspace change
+
+  // Let an in-flight connect settle first so its result is never clobbered
+  // by the stop below (the stop kills whatever the running connect spawned).
+  if (connectPromise) {
+    try { await connectPromise; } catch (_) { /* errors are handled inside connect */ }
+    if (sameRoot(cwd, boundCwd)) return; // it already bound to the new root
+  }
+
+  if (currentServer && currentServer.owned) {
+    try { await manager.stop(); } catch (_) { /* never break the rebind */ }
+  }
+  currentServer = null;
+  boundCwd = cwd;
+  render(statusPage({
+    title: "正在连接 DeepSeek Harness…",
+    detail: "工作区已变更，正在为新工作区匹配 DSH 实例…",
+  }));
+  await connect(context);
+}
+
+/**
+ * Queue a workspace-driven rebind. Chained so rapid workspace switches are
+ * processed one after another instead of racing each other.
+ */
+function scheduleRebind(context) {
+  rebindChain = rebindChain
+    .then(() => rebindToWorkspace(context))
+    .catch((err) => console.error("dsh-vs-sidebar: workspace rebind failed:", err));
+}
+
+/**
+ * Ensure the dsh CLI is findable when VS Code was launched with a trimmed
+ * PATH:
+ *  - Windows: launched from the Start menu/Explorer, the npm global bin dir
+ *    (%APPDATA%\npm, where dsh.cmd lives) may be missing from PATH.
+ *  - macOS: launched from Finder/Dock, the launchd PATH (/usr/bin:/bin:
+ *    /usr/sbin:/sbin) lacks the npm global bin (~/.npm-global/bin,
+ *    /usr/local/bin, /opt/homebrew/bin).
+ *  - Linux: desktop-launched sessions often lack the user npm prefix
+ *    (~/.local/bin, ~/.npm-global/bin).
+ * Only directories that actually exist are appended (POSIX), so a terminal
+ * launch with a full PATH is never polluted.
  */
 function ensureDshOnPath() {
-  if (process.platform === "win32" && process.env.APPDATA) {
-    const node = require("node:path");
-    const npmBin = node.join(process.env.APPDATA, "npm");
-    const parts = (process.env.PATH || "").split(node.delimiter);
-    if (!parts.includes(npmBin)) {
-      process.env.PATH = (process.env.PATH || "") + node.delimiter + npmBin;
+  const node = require("node:path");
+  const parts = (process.env.PATH || "").split(node.delimiter);
+  const append = (dir) => {
+    if (dir && !parts.includes(dir)) {
+      process.env.PATH = (process.env.PATH || "") + node.delimiter + dir;
+    }
+  };
+  if (process.platform === "win32") {
+    if (process.env.APPDATA) append(node.join(process.env.APPDATA, "npm"));
+    return;
+  }
+  if (process.platform === "darwin" || process.platform === "linux") {
+    const fs = require("node:fs");
+    const home = process.env.HOME || "";
+    const candidates = [];
+    if (home) {
+      candidates.push(node.join(home, ".npm-global", "bin"));
+      candidates.push(node.join(home, ".local", "bin"));
+      candidates.push(node.join(home, ".yarn", "bin"));
+    }
+    candidates.push("/usr/local/bin", "/opt/homebrew/bin");
+    for (const dir of candidates) {
+      try {
+        if (fs.existsSync(dir)) append(dir);
+      } catch (_) { /* stat errors are non-fatal */ }
     }
   }
 }
@@ -247,11 +345,13 @@ function activate(context) {
     })
   );
 
-  // Re-connect when the workspace root changes (cwd binding matters to DSH).
+  // Follow the workspace: when folders are added/removed or the active
+  // editor moves to another root (multi-root), rebind the sidebar to the new
+  // root's DSH instance. sameRoot() inside rebindToWorkspace keeps unrelated
+  // editor switches (same folder) a no-op.
   context.subscriptions.push(
-    vscode.workspace.onDidChangeWorkspaceFolders(() => {
-      if (currentServer && currentServer.owned) connect(context);
-    })
+    vscode.workspace.onDidChangeWorkspaceFolders(() => scheduleRebind(context)),
+    vscode.window.onDidChangeActiveTextEditor(() => scheduleRebind(context))
   );
 }
 

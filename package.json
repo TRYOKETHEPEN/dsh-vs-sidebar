@@ -1,8 +1,8 @@
 {
   "name": "dsh-vs-sidebar",
-  "displayName": "DeepSeek Harness Sidebar",
+  "displayName": "DeepSeek Harness Sidebar (DSH)",
   "description": "Embeds the local DeepSeek Harness (DSH) web UI into the VS Code auxiliary sidebar (the right-hand bar alongside Copilot Chat).",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "publisher": "Xizhi1024",
   "license": "MIT",
   "pricing": "Free",
@@ -35,6 +35,25 @@
     "vscode": "^1.90.0"
   },
   "main": "src/extension.js",
+  "activationEvents": [
+    "onView:dsh.webview",
+    "onCommand:dsh.openInBrowser",
+    "onCommand:dsh.restartServer",
+    "onCommand:dsh.focusSidebar"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "本扩展会启动本地 dsh web 进程并以工作区为 cwd 操作文件，不受信任的工作区中禁用"
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "需要 dsh CLI 与真实文件系统，虚拟工作区不可用"
+    }
+  },
   "devDependencies": {
     "@types/vscode": "^1.90.0"
   },
@@ -43,7 +62,7 @@
       "secondarySidebar": [
         {
           "id": "dsh-sidebar",
-          "title": "DeepSeek Harness",
+          "title": "DeepSeek Harness (DSH)",
           "icon": "media/dsh.svg"
         }
       ]
@@ -53,7 +72,7 @@
         {
           "type": "webview",
           "id": "dsh.webview",
-          "name": "DeepSeek Harness"
+          "name": "DeepSeek Harness (DSH)"
         }
       ]
     },
@@ -75,7 +94,7 @@
       }
     ],
     "configuration": {
-      "title": "DeepSeek Harness",
+      "title": "DeepSeek Harness Sidebar (DSH)",
       "properties": {
         "dsh.port": {
           "type": "number",

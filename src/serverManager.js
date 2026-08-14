@@ -363,7 +363,14 @@ class ServerManager {
           ...opts,
           windowsHide: true,
         })
-      : spawn('dsh', ['web', '--host', host, '--port', String(port)], opts);
+      : // POSIX: detached puts the child in its own process group so the whole
+        // tree (dsh web and any workers it spawns) can be SIGTERMed via
+        // kill(-pid) in _killChild. The child keeps running if the extension
+        // host dies, exactly like the Windows taskkill-tree behavior.
+        spawn('dsh', ['web', '--host', host, '--port', String(port)], {
+          ...opts,
+          detached: true,
+        });
 
     this._child = child;
     this._emit('starting', `正在启动 DSH web 服务 (pid=${child.pid}, port=${port}) …`);
@@ -441,9 +448,11 @@ class ServerManager {
   }
 
   /**
-   * Kill a child process. On Windows the spawned `dsh` is a cmd.exe wrapper,
-   * so taskkill /T /F is used to kill the whole tree; the returned promise
-   * resolves when taskkill exits. On POSIX send SIGTERM.
+   * Kill a child process. On Windows the spawned dsh is a cmd.exe wrapper,
+   * so taskkill /T /F kills the whole tree and the promise resolves when
+   * taskkill exits. On POSIX the child was spawned detached (its pid is the
+   * process-group id), so SIGTERM the group first — dsh web and any workers
+   * it spawned all die — then fall back to the single process.
    */
   _killChild(child) {
     if (process.platform === 'win32') {
@@ -454,9 +463,13 @@ class ServerManager {
       });
     }
     try {
-      child.kill('SIGTERM');
+      process.kill(-child.pid, 'SIGTERM');
     } catch {
-      // already dead
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        // already dead
+      }
     }
     return Promise.resolve();
   }
