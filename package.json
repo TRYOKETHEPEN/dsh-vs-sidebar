@@ -30,7 +30,7 @@
     "color": "#0e639c",
     "theme": "dark"
   },
-  "icon": "media/dsh.svg",
+  "icon": "media/dsh.png",
   "engines": {
     "vscode": "^1.90.0"
   },

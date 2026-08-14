@@ -261,7 +261,8 @@ vsce publish --no-dependencies
 ```
 dsh-vs-sidebar/
 ├─ package.json        # 清单：secondarySidebar 容器 + webview 视图 + 命令 + 配置
-├─ media/dsh.svg       # 侧边栏图标
+├─ media/dsh.svg       # 侧边栏容器图标（源文件 SVG）
+├─ media/dsh.png       # Marketplace 图标（PNG，发布必需）
 └─ src/
    ├─ extension.js     # 接线：activate/provider/命令/远程转发/状态栏
    ├─ serverManager.js # 探测/复用/换端口/启动/健康检查/清理（含自测）
