@@ -11,6 +11,8 @@
  *
  * Zero npm dependencies. CommonJS.
  */
+const http = require("node:http");
+const { randomUUID } = require("node:crypto");
 const vscode = require("vscode");
 const { ServerManager } = require("./serverManager");
 const { framePage, statusPage } = require("./webviewHtml");
@@ -100,6 +102,96 @@ function render(page) {
 }
 
 /**
+ * Post one DSH host RPC over HTTP and read its `result.ok`. Returns the
+ * parsed server-response or null on transport failure.
+ */
+function dshRpc(baseUrl, method, payload) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (value) => { if (!settled) { settled = true; resolve(value === undefined ? null : value); } };
+    let u;
+    try { u = new URL(baseUrl); } catch { done(null); return; }
+    const body = JSON.stringify({
+      type: "client-request",
+      rpcId: randomUUID(),
+      method,
+      payload,
+    });
+    const req = http.request(
+      {
+        host: u.hostname,
+        port: u.port ? Number(u.port) : 80,
+        path: "/api/" + method,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+        },
+        timeout: 5000,
+      },
+      (res) => {
+        let data = "";
+        res.setEncoding("utf8");
+        res.on("data", (c) => { data += c; });
+        res.on("end", () => { try { done(JSON.parse(data)); } catch { done(null); } });
+        res.on("error", () => done(null));
+      }
+    );
+    req.on("error", () => done(null));
+    req.on("timeout", () => { req.destroy(); done(null); });
+    req.end(body);
+  });
+}
+
+/**
+ * Record `dir` as a DSH workspace via the host HTTP API
+ * (`POST /api/workspace.create` — the same durable RPC the DSH client calls
+ * when you pick a folder). The DSH web UI does NOT keep its current workspace
+ * from the server's process cwd; on load it selects the *most recent* workspace
+ * (dsh-client-runtime's `recentWorkspace`). A freshly-created workspace gets
+ * `createdAt` = now (the newest), so the first webview connect lands on the
+ * current cwd instead of an old/history workspace.
+ *
+ * Best-effort, never rejects: retries a few times on a transient first-boot
+ * failure and logs the outcome.
+ */
+async function createWorkspace(baseUrl, dir, attempt = 1) {
+  const created = await dshRpc(baseUrl, "workspace.create", { path: dir });
+  const ok = created && created.result && created.result.ok === true;
+  if (ok) {
+    const value = created.result.value;
+    const workspace = value.workspace;
+    if (value.created !== true && workspace.sessionIds.length === 0) {
+      // The folder is ALREADY registered as a workspace but has no sessions, so
+      // it isn't selected (DSH auto-picks its *most recent* workspace). Give it
+      // a fresh blank session → it becomes the most recent and the first webview
+      // fronts on it. Workspaces that already hold conversations are left alone.
+      const ses = await dshRpc(baseUrl, "session.create", { workspaceId: workspace.workspaceId });
+      console.log(
+        "[dsh-vs-sidebar] workspace bound (existing, empty): " +
+          workspace.title + " (" + workspace.path + "), created " +
+          (ses && ses.result && ses.result.ok === true ? "a fresh session" : "session (unavailable, no-op)")
+      );
+      return;
+    }
+    console.log(
+      `[dsh-vs-sidebar] workspace bound: ${workspace.title} (${workspace.path}), created=${value.created}`
+    );
+    return;
+  }
+  if (attempt < 4) {
+    console.warn(`[dsh-vs-sidebar] workspace.bind retry ${attempt} for ${dir}`);
+    await new Promise((resolve) => setTimeout(resolve, 700 * attempt));
+    return createWorkspace(baseUrl, dir, attempt + 1);
+  }
+  console.warn(
+    `[dsh-vs-sidebar] could not bind workspace ${dir}: ${
+      (created && created.result && created.result.error && created.result.error.message) || "no response"
+    }`
+  );
+}
+
+/**
  * Main flow: make sure a DSH web server exists, then show it in the sidebar.
  * Returns the in-flight promise so callers (retry, openInBrowser, workspace
  * rebinds) can await the same connect instead of racing it. The cwd the
@@ -123,6 +215,13 @@ function connect(context) {
       });
       currentServer = server;
       boundCwd = cwd;
+      // Only when WE spawned this instance (owned) and a workspace root is
+      // known do we register it: a fresh DSH for a new folder must open on the
+      // current cwd instead of the last-used/history workspace. Reused
+      // instances are never touched (their workspace state is the user's own).
+      if (server.owned && cwd) {
+        await createWorkspace(server.url, cwd);
+      }
       const url = await externalize(server.url);
       const owned = server.owned ? "managed" : "reused";
       setStatusBar(
