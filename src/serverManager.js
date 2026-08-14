@@ -48,6 +48,10 @@ class ServerManager {
     this._child = null;   // ChildProcess spawned by THIS instance (owned)
     this._registryFile = null; // registry merged on ready (own entry removed on stop)
     this._stopping = false; // true while a deliberate stop() is in progress
+    this._lastSpawnPort = null; // last port we spawned on; forces a fresh port each spawn
+    // Per-PROCESS random base so consecutive VS Code runs don't reuse the same
+    // origin (see ensureServer); keeps DSH webview localStorage fresh per launch.
+    this._spawnFloor = null;
   }
 
   /**
@@ -212,8 +216,25 @@ class ServerManager {
 
     // Occupied port (DSH-with-wrong-workspace or a non-DSH service) must not
     // be reused → scan from port + 1; a dead port → scan from port itself.
-    const scanStart = r.reachable ? port + 1 : port;
+    // Also avoid reusing a port we already spawned on this session: DSH's web
+    // UI keeps its "current workspace" in localStorage keyed by origin (=port),
+    // so a reused port would carry a stale active folder into the new instance
+    // and the freshly-bound cwd would not surface. A fresh port each spawn
+    // yields a fresh origin (empty localStorage) → the bound workspace wins.
+    let scanStart = r.reachable ? port + 1 : port;
+    if (this._spawnFloor === null) {
+      // Randomize the first spawn upward so different VS Code runs (and thus
+      // webview origins) don't collide → the DSH UI's per-origin localStorage
+      // "current workspace" stays empty, letting our bound cwd surface.
+      this._spawnFloor = port + 1 + Math.floor(Math.random() * 60);
+    }
+    if (this._spawnFloor > scanStart) scanStart = this._spawnFloor;
+    if (this._lastSpawnPort !== null && this._lastSpawnPort >= scanStart) {
+      scanStart = this._lastSpawnPort + 1; // never reuse a port this process rented
+    }
     const freePort = await this._findFreePort(host, scanStart);
+    this._lastSpawnPort = freePort;
+    this._spawnFloor = freePort + 1;
     return this._spawnAndWait(host, freePort, cwd, registryFile);
   }
 
